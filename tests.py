@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from ilqr import FiniteDiff, TwoArgFiniteDiff
+from ilqr import FiniteDiff, TwoArgFiniteDiff, ILQR
 import numpy as np
 
 def makepoint(lst):
@@ -134,6 +134,7 @@ def test2():
                 true_val = fn1(x, u)
                 est_val = fn2(x, u)
 
+                '''
                 print '#'*20
                 print 'functions:', fn1, fn2
                 print 'x/u:'
@@ -142,11 +143,48 @@ def test2():
                 print 'values:'
                 print true_val
                 print est_val
+                '''
                 
                 assert np.allclose(true_val, est_val)
+
+def test3():
+    def dynamics(state, action):
+        return state+action
+
+    def cost(state, action):
+        return 2.0*state.T*state + 5.0*action.T*action
+
+    n = 3
+    
+    solver = ILQR(n, n,
+                 dynamics, None, None,
+                 cost, None, None,
+                 None, None, None, None)
+
+    start = np.matrix(np.ones(n)*3.0).T
+    horizon = 50
+    iters = 10
+    initial_actions = [np.matrix(np.zeros(n)).T for i in range(horizon)]
+    solver.config(start, horizon, initial_actions, iters, 1E-3)
+    
+    solution = solver.solve_iterative()
+
+    x = start
+    acc_cost = 0
+    for act in solution:
+        acc_cost += cost(x, act)
+        x = dynamics(x, act)
+
+    assert np.allclose(x, 0.0)
+    assert 116 < acc_cost < 117
+    
     
 if __name__ == '__main__':
+    print 'running test 0'
     test0()
+    print 'running test 1'    
     test1()
+    print 'running test 2'    
     test2()
-
+    print 'running test 3'
+    test3()

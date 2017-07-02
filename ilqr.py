@@ -99,7 +99,7 @@ class TwoArgFiniteDiff:
         assert np.shape(hessian) == (self.dom2_dim, self.dom1_dim)
         return hessian
         
-class DDP:
+class ILQR:
     def __init__(self, state_dim, act_dim,
                  dynamics, dyn_state_jac, dyn_act_jac,
                  cost, cost_state_grad, cost_act_grad,
@@ -158,6 +158,8 @@ class DDP:
     #returns R^(H*a)
     def solve_single_iteration(self, acts):
 
+        DEBUGMODE = False
+
         #first run the dynamics forward
         xs = [self.start_state]
         for act in acts:
@@ -173,12 +175,6 @@ class DDP:
         K_mats = []
         k_vecs = []
         for i in list(reversed(range(self.horizon))):
-
-            print 'printing P:'
-            print P_mat
-            print p_vec
-            print p_sca
-            
 
             #we should be around here
             x0 = xs[i] 
@@ -207,10 +203,47 @@ class DDP:
             c_x -= C_xx*x0 + C_xu*u0
             c_u -= C_uu*u0 + C_ux*x0
 
+            if DEBUGMODE:
+                #these numbers should *always* be correct -- globally!
+                print 'start'
+                print 'position'
+                print x0
+                print u0
+                print 'dynamics'
+                print D_x
+                print D_u
+                print d_
+                print 'cost'
+                print c_
+                print c_x
+                print c_u
+                print C_xx
+                print C_xu
+                print C_ux
+                print C_uu
+                print 'end'
+                close = lambda x, y : np.allclose(x, y, rtol = 1e-3, atol = 1e-3)
+                assert close(d_, 0)            
+                assert close(D_x, np.identity(2))
+                assert close(D_u, np.identity(2))
+                assert close(c_, 0)
+                assert close(c_x, 0)
+                assert close(c_u, 0)
+                assert close(C_xu, 0)
+                assert close(C_ux, 0)
+                assert close(C_xx, np.identity(2)*4.0)
+                assert close(C_uu, np.identity(2)*10.0)
+                print 'isclose!'
+
+            D_u_T_P = D_u.T*P_mat
+            Q_u = D_u_T_P*D_u + C_uu
+            Q_x = D_u_T_P*D_x + C_ux
+            q_ = D_u_T_P*d_ + D_u.T*p_vec
+
             #now we should compute #K and k
-            C_uu_inv = C_uu.I #this is not cached
-            K_mat = -C_uu_inv * (D_u * P_mat + C_ux)
-            k_vec = -C_uu_inv * (D_u * p_vec + c_u)
+            Q_u_inv = Q_u.I 
+            K_mat = -Q_u_inv * Q_x
+            k_vec = -Q_u_inv * q_
 
             #Now it's time for #M
             M_mat = D_x + D_u * K_mat
@@ -234,9 +267,20 @@ class DDP:
                      p_vec.T*m_vec +
                      p_sca)
 
+            
             #we know what the optimal action will be now, given x
             K_mats.append(K_mat)
             k_vecs.append(k_vec)
+
+            if DEBUGMODE:
+                print 'printing P:'
+                print P_mat
+                print p_vec
+                print p_sca
+                print 'printing K:'
+                print K_mat
+                print k_vec
+                print 'end'
 
         K_mats = list(reversed(K_mats))
         k_vecs = list(reversed(k_vecs))
@@ -244,14 +288,19 @@ class DDP:
         #rollout once
         acts = []
         x = self.start_state
+        acc_cost = 0
         for (K_mat, k_vec) in zip(K_mats, k_vecs):
             act = K_mat * x + k_vec
             acts.append(act)
+            acc_cost += self.cost(x, act)
             x = self.dynamics(x, act)
 
-        print 'final state is'
-        print x
-            
+        if DEBUGMODE:
+            print 'final state is'
+            print x
+            print 'total cost is'
+            print acc_cost
+        
         return acts
 
     def solve_iterative(self):
@@ -278,32 +327,9 @@ class DDP:
         pass
 
 if __name__ == '__main__':
-
-    def dynamics(state, action):
-        return state+action
-
-    def cost(state, action):
-        return 2.0*state.T*state + 5.0*action.T*action
-
-    n = 2
-    
-    solver = DDP(n, n,
-                 dynamics, None, None,
-                 cost, None, None,
-                 None, None, None, None)
-
-    start = np.matrix(np.ones(n)*3.0).T
-    horizon = 10
-    iters = 200
-    initial_actions = [np.matrix(np.zeros(n)).T for i in range(horizon)]
-    solver.config(start, horizon, initial_actions, iters, 1E-3)
-    
-    solution = solver.solve_iterative()
-
-    print 'printing solution...'
-    print solution
+    pass
  
-'''
-first there is the issue of using deltas instead of absolute values
-second, we need to check the math..!
-'''
+#now support
+#1. changing dynamics over time?
+#2. more complex systems ... :)
+#3. line search
