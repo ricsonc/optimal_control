@@ -174,45 +174,43 @@ class DDP:
         k_vecs = []
         for i in list(reversed(range(self.horizon))):
 
+            print 'printing P:'
             print P_mat
             print p_vec
             print p_sca
             
 
             #we should be around here
-            x_pred = xs[i] 
-            u_pred = acts[i]
+            x0 = xs[i] 
+            u0 = acts[i]
             
             #first linearize dynamics
-            d_ = self.dynamics(x_pred, u_pred)            
-            D_x = self.dyn_state_jac(x_pred, u_pred)
-            D_u = self.dyn_state_jac(x_pred, u_pred)
+            d_ = self.dynamics(x0, u0)            
+            D_x = self.dyn_state_jac(x0, u0)
+            D_u = self.dyn_state_jac(x0, u0)
+
+            #switching from x0 and u0 to x and u basis
+            d_ -= D_x*x0 + D_u*u0
             
             #quadratic approximation of cost
-            c_ = self.cost(x_pred, u_pred)
-            c_x = self.cost_state_grad(x_pred, u_pred)
-            c_u = self.cost_act_grad(x_pred, u_pred)
-            C_xx = self.cost_state_state_hess(x_pred, u_pred)
-            C_xu = self.cost_state_act_hess(x_pred, u_pred)
-            C_ux = self.cost_act_state_hess(x_pred, u_pred)
-            C_uu = self.cost_act_act_hess(x_pred, u_pred)
+            c_ = self.cost(x0, u0)
+            c_x = self.cost_state_grad(x0, u0)
+            c_u = self.cost_act_grad(x0, u0)
+            C_xx = self.cost_state_state_hess(x0, u0)
+            C_xu = self.cost_state_act_hess(x0, u0)
+            C_ux = self.cost_act_state_hess(x0, u0)
+            C_uu = self.cost_act_act_hess(x0, u0)
 
-            '''
-            print '#'*10
-            print c_
-            print c_x
-            print c_u
-            print C_xx
-            print C_xu
-            print C_ux
-            print C_uu
-            print '@'*10
-            '''
-            
+            #switching from x0 and u0 to x and u center
+            c_ += (0.5*x0.T*C_xx*x0 + 0.5*u0.T*C_uu*u0 + x0.T*C_xu*u0 -
+                   c_x.T*x0 - c_u.T*u0)
+            c_x -= C_xx*x0 + C_xu*u0
+            c_u -= C_uu*u0 + C_ux*x0
+
             #now we should compute #K and k
             C_uu_inv = C_uu.I #this is not cached
             K_mat = -C_uu_inv * (D_u * P_mat + C_ux)
-            k_vec = -0.5 * (D_u * p_vec + c_u) #wait...should be a C_uu_inv here!
+            k_vec = -C_uu_inv * (D_u * p_vec + c_u)
 
             #Now it's time for #M
             M_mat = D_x + D_u * K_mat
@@ -226,13 +224,13 @@ class DDP:
             
             p_vec = (c_x +
                      K_mat.T*c_u +
-                     2*K_mat.T*C_uu*k_vec +
-                     2*C_xu*k_vec +
-                     2*M_mat.T*P_mat*m_vec +
+                     K_mat.T*C_uu*k_vec +
+                     C_xu*k_vec +
+                     M_mat.T*P_mat*m_vec +
                      M_mat*p_vec)
 
             p_sca = (c_u.T*k_vec +
-                     k_vec.T*C_uu*k_vec +
+                     0.5*k_vec.T*C_uu*k_vec +
                      p_vec.T*m_vec +
                      p_sca)
 
@@ -251,6 +249,9 @@ class DDP:
             acts.append(act)
             x = self.dynamics(x, act)
 
+        print 'final state is'
+        print x
+            
         return acts
 
     def solve_iterative(self):
@@ -292,10 +293,17 @@ if __name__ == '__main__':
                  None, None, None, None)
 
     start = np.matrix(np.ones(n)*3.0).T
-    horizon = 2
+    horizon = 10
+    iters = 200
     initial_actions = [np.matrix(np.zeros(n)).T for i in range(horizon)]
-    solver.config(start, horizon, initial_actions, 1, 1E-3)
+    solver.config(start, horizon, initial_actions, iters, 1E-3)
     
     solution = solver.solve_iterative()
+
+    print 'printing solution...'
     print solution
  
+'''
+first there is the issue of using deltas instead of absolute values
+second, we need to check the math..!
+'''
