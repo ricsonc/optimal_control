@@ -177,7 +177,9 @@ def test3():
 
     assert np.allclose(x, 0.0)
     assert 116 < acc_cost < 117
-    
+
+def test4():
+    pass
     
 if __name__ == '__main__':
     print 'running test 0'
