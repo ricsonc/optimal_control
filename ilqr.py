@@ -5,11 +5,12 @@ from abc import ABCMeta
 import time
 
 class FiniteDiff: 
-    def __init__(self, fn, dom_dim, range_dim, eps = 1E-3):
+    def __init__(self, fn, dom_dim, range_dim, eps = 1E-3, ns = 1):
         self.fn = fn #input: two arguments
         self.dom_dim = dom_dim
         self.range_dim = range_dim
         self.eps = eps
+        self.ns = ns #sample size for stochastic fns
         #R^d to R^r
         self.verify_fn()
 
@@ -27,8 +28,15 @@ class FiniteDiff:
 
         yslopes = []
         for delta in deltas:
-            yp = self.fn(x+delta)
-            ym = self.fn(x-delta)
+            xp = x+delta
+            xm = x-delta
+            
+            if self.ns == 1:
+                yp = self.fn(xp)
+                ym = self.fn(xm)
+            else:
+                yp = sum((self.fn(xp) for i in range(self.ns)))/float(self.ns)
+                ym = sum((self.fn(xm) for i in range(self.ns)))/float(self.ns)
             
             yslope = (yp-ym)/(2*self.eps) #R^r
             yslopes.append(yslope)
@@ -46,18 +54,20 @@ class FiniteDiff:
         return lambda x: self.diff(x).T
 
     def hessian(self):
-        F = FiniteDiff(self.gradient(), self.dom_dim, self.dom_dim)
+        F = FiniteDiff(self.gradient(), self.dom_dim, self.dom_dim,
+                       self.eps, self.ns)
         return F.jacobian()
 
 class TwoArgFiniteDiff:
-    def __init__(self, fn, dom1_dim, dom2_dim, range_dim, eps = 1E-3):
+    def __init__(self, fn, dom1_dim, dom2_dim, range_dim, eps = 1E-3, ns = 1):
         self.fn = fn
         #we fix arg2 and consider the derivative wrt arg1, and vice versa
-        self.fd1 = lambda arg2: FiniteDiff(lambda arg1: fn(arg1, arg2), dom1_dim, range_dim, eps)
-        self.fd2 = lambda arg1: FiniteDiff(lambda arg2: fn(arg1, arg2), dom2_dim, range_dim, eps)
+        self.fd1 = lambda arg2: FiniteDiff(lambda arg1: fn(arg1, arg2), dom1_dim, range_dim, eps, ns)
+        self.fd2 = lambda arg1: FiniteDiff(lambda arg2: fn(arg1, arg2), dom2_dim, range_dim, eps, ns)
         self.dom1_dim = dom1_dim
         self.dom2_dim = dom2_dim
         self.eps = eps
+        self.ns = ns
 
     def diff1(self, arg1, arg2):
         return self.fd1(arg2).diff(arg1)
@@ -86,7 +96,7 @@ class TwoArgFiniteDiff:
     def hessian12(self, arg1, arg2):
         tafd = TwoArgFiniteDiff(self.gradient1,
                                 self.dom1_dim, self.dom2_dim, self.dom1_dim,
-                                self.eps)
+                                self.eps, self.ns)
         hessian = tafd.jacobian2(arg1, arg2)
         assert np.shape(hessian) == (self.dom1_dim, self.dom2_dim)
         return hessian
@@ -94,7 +104,7 @@ class TwoArgFiniteDiff:
     def hessian21(self, arg1, arg2):
         tafd = TwoArgFiniteDiff(self.gradient2,
                                 self.dom2_dim, self.dom1_dim, self.dom2_dim,
-                                self.eps)
+                                self.eps, self.ns)
         hessian = tafd.jacobian1(arg1, arg2)
         assert np.shape(hessian) == (self.dom2_dim, self.dom1_dim)
         return hessian
@@ -104,14 +114,15 @@ class ILQR:
                  dynamics, dyn_state_jac, dyn_act_jac,
                  cost, cost_state_grad, cost_act_grad,
                  cost_state_state_hess, cost_state_act_hess,
-                 cost_act_state_hess, cost_act_act_hess):
+                 cost_act_state_hess, cost_act_act_hess,
+                 eps = 1e-3, ns = 1):
 
         #an integer > 0
         self.state_dim = state_dim 
         self.act_dim = act_dim
 
-        dyn_fd = TwoArgFiniteDiff(dynamics, state_dim, act_dim, state_dim)
-        cost_fd = TwoArgFiniteDiff(cost, state_dim, act_dim, 1)
+        dyn_fd = TwoArgFiniteDiff(dynamics, state_dim, act_dim, state_dim, eps, ns)
+        cost_fd = TwoArgFiniteDiff(cost, state_dim, act_dim, 1, eps, ns)
         
         #R^s x R^a -> R^a
         self.dynamics = dynamics
@@ -145,7 +156,7 @@ class ILQR:
 
     def config(self, start_state, horizon,
                initial_actions, num_iters,
-               ilqr_tol = 1E-3):
+               ilqr_tol = 1E-3, damping = 0.0):
 
         #R^s
         self.start_state = start_state
@@ -154,6 +165,7 @@ class ILQR:
         self.initial_actions = initial_actions
         self.num_iters = num_iters
         self.ilqr_tol = ilqr_tol
+        self.damping = damping
 
     #returns R^(H*a)
     def solve_single_iteration(self, acts):
@@ -203,38 +215,6 @@ class ILQR:
             c_x -= C_xx*x0 + C_xu*u0
             c_u -= C_uu*u0 + C_ux*x0
 
-            if DEBUGMODE:
-                #these numbers should *always* be correct -- globally!
-                print 'start'
-                print 'position'
-                print x0
-                print u0
-                print 'dynamics'
-                print D_x
-                print D_u
-                print d_
-                print 'cost'
-                print c_
-                print c_x
-                print c_u
-                print C_xx
-                print C_xu
-                print C_ux
-                print C_uu
-                print 'end'
-                close = lambda x, y : np.allclose(x, y, rtol = 1e-3, atol = 1e-3)
-                assert close(d_, 0)            
-                assert close(D_x, np.identity(2))
-                assert close(D_u, np.identity(2))
-                assert close(c_, 0)
-                assert close(c_x, 0)
-                assert close(c_u, 0)
-                assert close(C_xu, 0)
-                assert close(C_ux, 0)
-                assert close(C_xx, np.identity(2)*4.0)
-                assert close(C_uu, np.identity(2)*10.0)
-                print 'isclose!'
-
             D_u_T_P = D_u.T*P_mat
             Q_u = D_u_T_P*D_u + C_uu
             Q_x = D_u_T_P*D_x + C_ux
@@ -272,36 +252,20 @@ class ILQR:
             K_mats.append(K_mat)
             k_vecs.append(k_vec)
 
-            if DEBUGMODE:
-                print 'printing P:'
-                print P_mat
-                print p_vec
-                print p_sca
-                print 'printing K:'
-                print K_mat
-                print k_vec
-                print 'end'
-
         K_mats = list(reversed(K_mats))
         k_vecs = list(reversed(k_vecs))
 
         #rollout once
-        acts = []
+        newacts = []
         x = self.start_state
         acc_cost = 0
-        for (K_mat, k_vec) in zip(K_mats, k_vecs):
-            act = K_mat * x + k_vec
-            acts.append(act)
+        for i, (K_mat, k_vec) in enumerate(zip(K_mats, k_vecs)):
+            act = (1.0-self.damping)*(K_mat * x + k_vec) + self.damping*acts[i]
+            newacts.append(act)
             acc_cost += self.cost(x, act)
             x = self.dynamics(x, act)
 
-        if DEBUGMODE:
-            print 'final state is'
-            print x
-            print 'total cost is'
-            print acc_cost
-        
-        return acts
+        return newacts
 
     def solve_iterative(self):
         #basically ilqr
@@ -322,14 +286,26 @@ class ILQR:
             acts = new_acts
         return acts
 
-    def solve_session(self):
-        #mpc: helpful when dynamics are uncertain
-        pass
+class MPC:
+    def __init__(self, ilqr_system):
+        self.system = ilqr_system
+        self.start = self.system.start_state
 
+    def start_session(self):
+        self.system.start_state = self.start
+
+    def get_next_move(self):
+        actions = self.system.solve_iterative()
+        return actions[0]
+
+    def update_state(self, state):
+        self.system.state = state
+        
 if __name__ == '__main__':
     pass
- 
-#now support
-#1. changing dynamics over time?
-#2. more complex systems ... :)
-#3. line search
+
+#todo
+#1. better test cases
+'''
+
+'''
