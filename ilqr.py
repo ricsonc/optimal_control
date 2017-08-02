@@ -306,20 +306,4 @@ if __name__ == '__main__':
     pass
 
 #todo
-#1. better test cases
-'''
-needs to be noisy (dynamics noisy, cost is not)
-cost fn and dynamics must be nonlinear (nonquadratic even)
-use acceleration for nonlinear dynamics
-let velocity be part of cost???
-should use MPC (and show that ilqr fails)
-
-also how do we allow time varying costs?
-that's part of mpc as well... (as in it has to be shifted over by one)
-ok, just allow cost to take a time argument as well...(integer!)
-
-then we need a time varying test case!
-(move to point a, then b, then c...)
-
-
-'''
+#time varying dynamics

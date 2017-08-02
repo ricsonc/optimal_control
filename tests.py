@@ -179,7 +179,17 @@ def test3():
     assert 116 < acc_cost < 117
 
 def test4():
-    pass
+    def dynamics(state, action):
+        pos = state[0:2]
+        vel = state[2:4]
+        return np.concatenate(pos+vel, vel+action)
+
+    def cost(state, action):
+        pos = state[0:2]
+        vel = state[2:4]
+        return pos.T*pos + vel[0]*vel[1]
+
+    start = np.matrix([1.0, 2.0]).T
     
 if __name__ == '__main__':
     print 'running test 0'
@@ -190,3 +200,5 @@ if __name__ == '__main__':
     test2()
     print 'running test 3'
     test3()
+    print 'running test 4'
+    test4()
