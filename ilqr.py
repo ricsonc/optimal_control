@@ -437,3 +437,4 @@ if __name__ == '__main__':
 #make mpc test
 #need a family with time varying dynamics and costs
 #3-argument dynamics/cost fn, with optional time
+#write the notes on OC before further development
