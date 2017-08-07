@@ -3,6 +3,7 @@
 import numpy as np
 from abc import ABCMeta
 import time
+from utils import check_vals
 
 class FiniteDiff: 
     def __init__(self, fn, dom_dim, range_dim, eps = 1E-3, ns = 1):
@@ -209,8 +210,8 @@ class ILQR:
                                   if cost_act_act_hess
                                   else cost_fd.hessian22)
 
-    def config(self, start_state, horizon,
-               initial_actions, num_iters,
+    def config(self, start_state, horizon = 50,
+               initial_actions = None, num_iters = 10,
                ilqr_tol = 1E-3, damping = 0.0):
         '''
         start_state : the start state for the mdp
@@ -223,7 +224,11 @@ class ILQR:
 
         self.start_state = start_state #shape (s,)
         self.horizon = horizon
-        self.initial_actions = initial_actions #shape (H,a)
+        if initial_actions:
+            self.initial_actions = initial_actions #shape (H,a)
+        else:
+            self.initial_actions = [np.matrix(np.ones(self.act_dim)).T for i in range(horizon)]
+
         self.num_iters = num_iters
         self.ilqr_tol = ilqr_tol
         self.damping = damping
@@ -234,7 +239,7 @@ class ILQR:
         output : actions
         '''
 
-        DEBUGMODE = False
+        DEBUGMODE = True
 
         #first run the dynamics forward
         xs = [self.start_state]
@@ -252,17 +257,25 @@ class ILQR:
         k_vecs = []
         for i in list(reversed(range(self.horizon))):
 
+            if DEBUGMODE:
+                print 'on loop %d' % i
+
             #we should be around here
             x0 = xs[i] 
             u0 = acts[i]
             
             #first linearize dynamics
-            d_ = self.dynamics(x0, u0)            
+            d_ = self.dynamics(x0, u0)
             D_x = self.dyn_state_jac(x0, u0)
             D_u = self.dyn_act_jac(x0, u0)
 
             #switching from x0 and u0 to x and u basis
             d_ -= D_x*x0 + D_u*u0
+
+            if DEBUGMODE:
+                check_vals(d_)
+                check_vals(D_x)
+                check_vals(D_u)
             
             #quadratic approximation of cost
             c_ = self.cost(x0, u0)
@@ -272,13 +285,27 @@ class ILQR:
             C_xu = self.cost_state_act_hess(x0, u0)
             C_ux = self.cost_act_state_hess(x0, u0)
             C_uu = self.cost_act_act_hess(x0, u0)
-            
+
+            if DEBUGMODE:
+                check_vals(c_)
+                check_vals(c_x)
+                check_vals(c_u)
+                check_vals(C_xx)
+                check_vals(C_xu)
+                check_vals(C_ux)
+                check_vals(C_uu)
+
             #switching from x0 and u0 to x and u center
             c_ += (0.5*x0.T*C_xx*x0 + 0.5*u0.T*C_uu*u0 + x0.T*C_xu*u0 -
                    c_x.T*x0 - c_u.T*u0)
             c_x -= C_xx*x0 + C_xu*u0
             c_u -= C_uu*u0 + C_ux*x0
 
+            if DEBUGMODE:
+                check_vals(c_)
+                check_vals(c_x)
+                check_vals(c_u)
+                
             D_u_T_P = D_u.T*P_mat
             Q_u = D_u_T_P*D_u + C_uu
             Q_x = D_u_T_P*D_x + C_ux
@@ -293,9 +320,17 @@ class ILQR:
             K_mat = -Q_u_inv * Q_x
             k_vec = -Q_u_inv * q_
 
+            if DEBUGMODE:
+                check_vals(K_mat)
+                check_vals(k_vec)
+                
             #Now it's time for #M
             M_mat = D_x + D_u * K_mat
             m_vec = D_u * k_vec + d_
+
+            if DEBUGMODE:
+                check_vals(M_mat)
+                check_vals(m_vec)
 
             #finally we can obtain the new #P's
             P_mat = (C_xx +
@@ -315,6 +350,11 @@ class ILQR:
                      p_vec.T*m_vec +
                      p_sca)
 
+
+            if DEBUGMODE:
+                check_vals(P_mat)
+                check_vals(p_vec)
+                check_vals(p_sca)
             
             #we know what the optimal action will be now, given x
             K_mats.append(K_mat)
@@ -329,9 +369,15 @@ class ILQR:
         acc_cost = 0
         for i, (K_mat, k_vec) in enumerate(zip(K_mats, k_vecs)):
             act = (1.0-self.damping)*(K_mat * x + k_vec) + self.damping*acts[i]
+            
+            if DEBUGMODE:
+                check_vals(act)
+                
             newacts.append(act)
             acc_cost += self.cost(x, act)
             x = self.dynamics(x, act)
+
+        print 'cost was', acc_cost
 
         return newacts
 
@@ -388,5 +434,6 @@ class MPC:
 if __name__ == '__main__':
     pass
 
+#make mpc test
 #need a family with time varying dynamics and costs
 #3-argument dynamics/cost fn, with optional time

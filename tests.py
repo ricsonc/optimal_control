@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
+import gym
 from ilqr import FiniteDiff, TwoArgFiniteDiff, ILQR
 import numpy as np
+import math
+import time
 
 def makepoint(lst):
     '''
@@ -215,14 +218,96 @@ def test4():
     ILQR_test(dynamics, cost,
               4, 2, start)
 
+def test5():
+    '''Cartpole with ILQR'''
+
+    def angle_normalize(x):
+        return (((x+np.pi) % (2*np.pi)) - np.pi)
+
+    def cos_sin_to_theta(costheta, sintheta):
+        costheta = np.clip(costheta, -1, 1)
+        theta = math.acos(costheta)
+        if sintheta >= 0:
+            ans = theta
+        else:
+            ans = 2*math.pi-theta
+        return angle_normalize(ans)
+
+    def read_state(state):
+        theta = cos_sin_to_theta(state[0], state[1])
+        thdot = state[2] #angular velocity
+        return theta, thdot
+
+    def softclip(x, _min, _max):
+        if _min <= x <= _max:
+            return float(x)
+
+        if _min > x:
+            extra = _min-x
+        elif x > _max:
+            extra = x-_max
+
+        if _min > x:
+            return _min - math.sqrt(extra)
+        elif x > _max:
+            return _max + math.sqrt(extra)
+
+    def dynamics(state, action):
+        theta, thdot = read_state(state)
+        
+        g = 10.0
+        m = 1.0
+        l = 1.0
+        dt = 0.05
+        max_torque = 2.0
+        max_speed = 8.0
+
+        action = softclip(action, -max_torque, max_torque)
+        newthdot = thdot + (-3*g/(2*l) * np.sin(theta + np.pi) + 3./(m*l**2)*action) * dt
+        newtheta = theta + newthdot*dt
+        newthdot = softclip(newthdot, -max_speed, max_speed) 
+        newstate = np.matrix([math.cos(newtheta), math.sin(newtheta), newthdot])
+        return newstate.T
+    
+    def cost(state, action):
+        theta, thdot = read_state(state)
+        #cost = angle_normalize(theta)**2 + 0.1*thdot**2 + 0.001*(action.T*action)
+        cost = np.matrix(thdot**2) + 0.01*action.T*action
+        return cost
+
+    env = gym.make('Pendulum-v0')
+    start_state = env.reset()
+    start_state = np.matrix(start_state).T
+    
+    solver = ILQR(3, 1,
+                  dynamics, None, None,
+                  cost, None, None,
+                  None, None, None, None,
+                  eps = 1E-2)
+
+    
+    solver.config(start_state, horizon = 30, num_iters = 20, damping = 0.0)
+    solution = solver.solve_iterative()
+
+    print solution
+
+    env.render()
+    for step in solution:
+        time.sleep(0.1)
+        env.step(step[0])
+        env.render()
+        
 if __name__ == '__main__':
-    print 'running test 0'
-    test0()
-    print 'running test 1'    
-    test1()
-    print 'running test 2'    
-    test2()
-    print 'running test 3'
-    test3()
-    print 'running test 4'
-    test4()
+    # print 'running test 0'
+    # test0()
+    # print 'running test 1'    
+    # test1()
+    # print 'running test 2'    
+    # test2()
+    # print 'running test 3'
+    # test3()
+    # print 'running test 4'
+    # test4()
+    print 'running test 5'
+    test5()
+
