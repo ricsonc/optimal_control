@@ -173,10 +173,12 @@ def ILQR_test(dynamics, cost,
         x = dynamics(x, act)
 
     if expected_position is not None:
-        assert np.allclose(x, expected_position)
+        assert np.allclose(x, expected_position,
+                           rtol = 0.01, atol = 0.01)
 
     if expected_cost is not None:
-        assert np.allclose(acc_cost, expected_cost, rtol = 0.1, atol = 1.0)
+        assert np.allclose(acc_cost, expected_cost,
+                           rtol = 0.1, atol = 1.0)
     
 def test3():
     ''' 
@@ -201,19 +203,12 @@ def test4():
     def dynamics(state, action):
         pos = state[0:2]
         vel = state[2:4]
-        rval =  np.concatenate([pos+vel, vel+action])
-        print '#'
-        print rval
-        return rval
+        return np.concatenate([pos+vel, vel+action])
 
     def cost(state, action):
         pos = state[0:2]
         vel = state[2:4]
-        print '@'
-        print np.shape(state)
-        print np.shape(vel)
-        return pos.T*pos + vel[0]*vel[1]
-
+        return 0.1*pos.T*pos + vel[0]*vel[1] + action.T*action
 
     start = np.matrix([1.0, 2.0, 0.0, 0.0]).T
 

@@ -141,7 +141,7 @@ class TwoArgFiniteDiff:
     def hessian21(self, arg1, arg2):
         '''hessian wrt x2, x1'''
         tafd = TwoArgFiniteDiff(self.gradient2,
-                                self.dom2_dim, self.dom1_dim, self.dom2_dim,
+                                self.dom1_dim, self.dom2_dim, self.dom2_dim,
                                 self.eps, self.ns)
         hessian = tafd.jacobian1(arg1, arg2)
         assert np.shape(hessian) == (self.dom2_dim, self.dom1_dim)
@@ -272,7 +272,7 @@ class ILQR:
             C_xu = self.cost_state_act_hess(x0, u0)
             C_ux = self.cost_act_state_hess(x0, u0)
             C_uu = self.cost_act_act_hess(x0, u0)
-
+            
             #switching from x0 and u0 to x and u center
             c_ += (0.5*x0.T*C_xx*x0 + 0.5*u0.T*C_uu*u0 + x0.T*C_xu*u0 -
                    c_x.T*x0 - c_u.T*u0)
@@ -285,7 +285,11 @@ class ILQR:
             q_ = D_u_T_P*d_ + D_u.T*p_vec
 
             #now we should compute #K and k
-            Q_u_inv = Q_u.I 
+            try:
+                Q_u_inv = Q_u.I
+            except:
+                Q_u_inv = (Q_u + 1E-3*np.identity(self.act_dim)).I
+                
             K_mat = -Q_u_inv * Q_x
             k_vec = -Q_u_inv * q_
 
