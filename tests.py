@@ -144,31 +144,26 @@ def test2():
 
                 assert np.allclose(true_val, est_val)
 
-def test3():
-    ''' 
-    ILQR
-    tests minimization of a simple quadratic function
-    '''
-    
-    def dynamics(state, action):
-        return state+action
+def ILQR_test(dynamics, cost,
+              state_dim, act_dim,
+              start = None,
+              horizon = 50,
+              iters = 10,
+              eps = 1e-3,
+              expected_position = 0.0,
+              expected_cost = None):
+    '''creates a new ilqr test given the args'''
 
-    def cost(state, action):
-        return 2.0*state.T*state + 5.0*action.T*action
-
-    n = 3
-    
-    solver = ILQR(n, n,
+    solver = ILQR(state_dim, act_dim,
                  dynamics, None, None,
                  cost, None, None,
                  None, None, None, None)
 
-    start = np.matrix(np.ones(n)*3.0).T
-    horizon = 50
-    iters = 10
-    initial_actions = [np.matrix(np.zeros(n)).T for i in range(horizon)]
-    solver.config(start, horizon, initial_actions, iters, 1E-3)
-    
+    if start is None:
+        start = np.matrix(np.ones(state_dim)*3.0).T
+
+    initial_actions = [np.matrix(np.zeros(act_dim)).T for i in range(horizon)]
+    solver.config(start, horizon, initial_actions, iters, eps)
     solution = solver.solve_iterative()
 
     x = start
@@ -177,8 +172,25 @@ def test3():
         acc_cost += cost(x, act)
         x = dynamics(x, act)
 
-    assert np.allclose(x, 0.0)
-    assert 116 < acc_cost < 117
+    if expected_position is not None:
+        assert np.allclose(x, expected_position)
+
+    if expected_cost is not None:
+        assert np.allclose(acc_cost, expected_cost, rtol = 0.1, atol = 1.0)
+    
+def test3():
+    ''' 
+    ILQR
+    tests minimization of a simple quadratic function
+    '''
+
+    def dynamics(state, action):
+        return state+action
+
+    def cost(state, action):
+        return 2.0*state.T*state + 5.0*action.T*action
+
+    ILQR_test(dynamics, cost, 3, 3, expected_cost = 116.5)
 
 def test4():
     '''
@@ -189,15 +201,25 @@ def test4():
     def dynamics(state, action):
         pos = state[0:2]
         vel = state[2:4]
-        return np.concatenate(pos+vel, vel+action)
+        rval =  np.concatenate([pos+vel, vel+action])
+        print '#'
+        print rval
+        return rval
 
     def cost(state, action):
         pos = state[0:2]
         vel = state[2:4]
+        print '@'
+        print np.shape(state)
+        print np.shape(vel)
         return pos.T*pos + vel[0]*vel[1]
 
+
     start = np.matrix([1.0, 2.0, 0.0, 0.0]).T
-    
+
+    ILQR_test(dynamics, cost,
+              4, 2, start)
+
 if __name__ == '__main__':
     print 'running test 0'
     test0()

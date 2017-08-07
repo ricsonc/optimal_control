@@ -259,7 +259,7 @@ class ILQR:
             #first linearize dynamics
             d_ = self.dynamics(x0, u0)            
             D_x = self.dyn_state_jac(x0, u0)
-            D_u = self.dyn_state_jac(x0, u0)
+            D_u = self.dyn_act_jac(x0, u0)
 
             #switching from x0 and u0 to x and u basis
             d_ -= D_x*x0 + D_u*u0
