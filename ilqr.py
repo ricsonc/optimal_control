@@ -6,12 +6,18 @@ import time
 
 class FiniteDiff: 
     def __init__(self, fn, dom_dim, range_dim, eps = 1E-3, ns = 1):
-        self.fn = fn #input: two arguments
+        '''
+        fn : the function to differentiated, has one argument
+        dom_dim : dimensionality of the domain of fn
+        range_dim : dimentionality of the codomain of fn
+        eps : the epsilon used when computing gradients
+        ns : number of smaples, should be > 1 for stochastic fns
+        '''
+        self.fn = fn 
         self.dom_dim = dom_dim
         self.range_dim = range_dim
         self.eps = eps
-        self.ns = ns #sample size for stochastic fns
-        #R^d to R^r
+        self.ns = ns 
         self.verify_fn()
 
     def verify_fn(self):
@@ -19,8 +25,12 @@ class FiniteDiff:
         out = self.fn(zeros)
         assert np.shape(out) == (self.range_dim, 1)
 
-    #R^d to R^(r*d)
     def diff(self, x):
+        '''
+        x : a point in the domain of fn
+        outputs shape [range_dim, dom_dim]
+        '''
+        
         assert np.shape(x) == (self.dom_dim, 1)
 
         deltas = map(lambda x: np.matrix(x).T,
@@ -47,19 +57,33 @@ class FiniteDiff:
         return dydx
 
     def jacobian(self):
+        '''returns a function which computes the jacobian'''
         return self.diff
 
     def gradient(self):
+        '''
+        returns a function which computes the gradient
+        note that the range of the function must be single-dimension
+        '''
         assert self.range_dim == 1
         return lambda x: self.diff(x).T
 
     def hessian(self):
+        '''returns a function which computes the hessi'''
         F = FiniteDiff(self.gradient(), self.dom_dim, self.dom_dim,
                        self.eps, self.ns)
         return F.jacobian()
 
 class TwoArgFiniteDiff:
     def __init__(self, fn, dom1_dim, dom2_dim, range_dim, eps = 1E-3, ns = 1):
+        '''
+        fn : the function to be differentiated, has two arguments
+        dom1_dim, dom2_dim : dimensionality of domain of fn
+        range_dim : dimensionality of the codomain of fn
+        eps : the epsilon used when computing gradients
+        ns : number of samples, should be > 1 for stochastic fns
+        '''
+        
         self.fn = fn
         #we fix arg2 and consider the derivative wrt arg1, and vice versa
         self.fd1 = lambda arg2: FiniteDiff(lambda arg1: fn(arg1, arg2), dom1_dim, range_dim, eps, ns)
@@ -70,30 +94,43 @@ class TwoArgFiniteDiff:
         self.ns = ns
 
     def diff1(self, arg1, arg2):
+        '''
+        arg1 : the first argument of the fn
+        arg2 : the second argument of the fn
+        output : difference wrt x1 at x1 = arg1, x2 = arg2
+        '''
         return self.fd1(arg2).diff(arg1)
 
     def diff2(self, arg1, arg2):
+        '''output : difference wrt x2 at x1 = arg1, x2 = arg2'''
         return self.fd2(arg1).diff(arg2)
 
     def gradient1(self, arg1, arg2):
+        '''output : gradient wrt x1 at x1 = arg1, x2 = arg2'''
         return self.fd1(arg2).gradient()(arg1)
 
     def gradient2(self, arg1, arg2):
+        '''output : gradient wrt x2 at x1 = arg1, x2 = arg2'''
         return self.fd2(arg1).gradient()(arg2)
 
     def jacobian1(self, arg1, arg2):
+        '''output : jacobian wrt x2 at x1 = arg1, x2 = arg2'''
         return self.fd1(arg2).jacobian()(arg1)
 
     def jacobian2(self, arg1, arg2):
+        '''output : jacobian wrt x2 at x1 = arg1, x2 = arg2'''        
         return self.fd2(arg1).jacobian()(arg2)
 
     def hessian11(self, arg1, arg2):
+        '''output : hessian wrt x1, x1'''
         return self.fd1(arg2).hessian()(arg1)
 
     def hessian22(self, arg1, arg2):
+        '''output : hessian wrt x2, x2'''
         return self.fd2(arg1).hessian()(arg2)
 
     def hessian12(self, arg1, arg2):
+        '''hessian wrt x1, x2'''
         tafd = TwoArgFiniteDiff(self.gradient1,
                                 self.dom1_dim, self.dom2_dim, self.dom1_dim,
                                 self.eps, self.ns)
@@ -102,6 +139,7 @@ class TwoArgFiniteDiff:
         return hessian
 
     def hessian21(self, arg1, arg2):
+        '''hessian wrt x2, x1'''
         tafd = TwoArgFiniteDiff(self.gradient2,
                                 self.dom2_dim, self.dom1_dim, self.dom2_dim,
                                 self.eps, self.ns)
@@ -116,6 +154,23 @@ class ILQR:
                  cost_state_state_hess, cost_state_act_hess,
                  cost_act_state_hess, cost_act_act_hess,
                  eps = 1e-3, ns = 1):
+        '''
+        state_dim : state dimension of the env
+        act_dim : action dimension of the env
+        dynamics : fn which maps (state, action) to new state
+        dyn_state_jac : jacobian of the dynamics wrt state, optional
+        dyn_act_jac : jacobian of the dynamics wrt action, optional
+        cost : fn which maps (state, action) to cost
+        cost_state_grad : gradient of the cost fn wrt state, optional
+        cost_act_grad : gradient of the cost fn wrt action, optional
+        cost_*_*_hess : hessian of the cost fn, optional
+        
+        for optional arguments, pass in None if unkown
+        they will be computed numerically in that case
+
+        eps : epsilon used for finite differencing if necessary
+        ns : number of samples used for finite differencing
+        '''
 
         #an integer > 0
         self.state_dim = state_dim 
@@ -124,32 +179,32 @@ class ILQR:
         dyn_fd = TwoArgFiniteDiff(dynamics, state_dim, act_dim, state_dim, eps, ns)
         cost_fd = TwoArgFiniteDiff(cost, state_dim, act_dim, 1, eps, ns)
         
-        #R^s x R^a -> R^a
+        #s x a -> a
         self.dynamics = dynamics
-        #R^s x R^a -> R^(s*s)
+        #s x a -> (s,s)
         self.dyn_state_jac = dyn_state_jac if dyn_state_jac else dyn_fd.jacobian1
-        #R^s x R^a -> R^(s*a)
+        #s x a -> (s,a)
         self.dyn_act_jac = dyn_act_jac if dyn_act_jac else dyn_fd.jacobian2
 
-        #R^s x R^a -> R        
+        #s x a -> ()
         self.cost = cost
-        #R^s x R^a -> R^s
+        #s x a -> s
         self.cost_state_grad = cost_state_grad if cost_state_grad else cost_fd.gradient1
-        #R^s x R^a -> R^a        
+        #s x a -> a
         self.cost_act_grad = cost_act_grad if cost_act_grad else cost_fd.gradient2
-        #R^s x R^a -> R^(s*s)
+        #s x a -> (s,s)
         self.cost_state_state_hess = (cost_state_state_hess
                                       if cost_state_state_hess
                                       else cost_fd.hessian11)
-        #R^s x R^a -> R^(s*a)
+        #s x a -> (s,a)
         self.cost_state_act_hess = (cost_state_act_hess
                                     if cost_state_act_hess
                                     else cost_fd.hessian12)
-        #R^s x R^a -> R^(a*s)
+        #s x a -> (a,s)
         self.cost_act_state_hess = (cost_act_state_hess
                                     if cost_act_state_hess
                                     else cost_fd.hessian21)
-        #R^s x R^a -> R^(a*a)
+        #s x a -> (a,a)
         self.cost_act_act_hess = (cost_act_act_hess
                                   if cost_act_act_hess
                                   else cost_fd.hessian22)
@@ -157,18 +212,27 @@ class ILQR:
     def config(self, start_state, horizon,
                initial_actions, num_iters,
                ilqr_tol = 1E-3, damping = 0.0):
+        '''
+        start_state : the start state for the mdp
+        horizon : integer, how far out to optimize
+        initial_actions : initial trajectory to start optimizing from
+        num_iters : maximum iterations to go for
+        ilqr_tol : if total action difference is under this threshold, stop
+        damping : update the actions with a damping factor for more stability
+        '''
 
-        #R^s
-        self.start_state = start_state
+        self.start_state = start_state #shape (s,)
         self.horizon = horizon
-        #R^(H*a)        
-        self.initial_actions = initial_actions
+        self.initial_actions = initial_actions #shape (H,a)
         self.num_iters = num_iters
         self.ilqr_tol = ilqr_tol
         self.damping = damping
 
-    #returns R^(H*a)
     def solve_single_iteration(self, acts):
+        '''
+        acts : initial guess of actions, shape (H,a)
+        output : actions
+        '''
 
         DEBUGMODE = False
 
@@ -268,7 +332,9 @@ class ILQR:
         return newacts
 
     def solve_iterative(self):
-        #basically ilqr
+        '''
+        performs ILQR, returns good set of actions
+        '''
 
         def acts_diff(acts1, acts2):
             def act_diff(act1, act2):
@@ -287,23 +353,36 @@ class ILQR:
         return acts
 
 class MPC:
+    '''
+    model predicative control
+    due to the interactive way that MPC works, the interface is a bit different from ILQR
+    one must first initialize with start_session
+    then alternate calls to get_next_move and update_state
+    '''
+    
     def __init__(self, ilqr_system):
+        '''
+        set up MPC system given an ILQR instance
+        '''
         self.system = ilqr_system
         self.start = self.system.start_state
 
     def start_session(self):
+        '''start an MPC solving session'''
         self.system.start_state = self.start
 
     def get_next_move(self):
+        '''ask for the next move'''
         actions = self.system.solve_iterative()
         return actions[0]
 
     def update_state(self, state):
+        '''return the state which happens'''
         self.system.state = state
         self.system.horizon -= 1
         
 if __name__ == '__main__':
     pass
 
-#todo
-#time varying dynamics
+#need a family with time varying dynamics and costs
+#3-argument dynamics/cost fn, with optional time

@@ -4,9 +4,15 @@ from ilqr import FiniteDiff, TwoArgFiniteDiff, ILQR
 import numpy as np
 
 def makepoint(lst):
+    '''
+    makes a column vector out of a list of points
+    '''
     return np.matrix(lst).T
 
 def test0():
+    '''
+    tests finite difference class
+    '''
     def f0(x):
         return x*x*3.0
     
@@ -22,6 +28,9 @@ def test0():
         assert np.allclose(true_grad, est_grad)
 
 def test1():
+    '''
+    more extensive testing of finite differences
+    '''
         
     def f1(x):
         assert np.shape(x) == (2,1)
@@ -61,7 +70,9 @@ def test1():
         assert np.allclose(true_hess, est_hess)
 
 def test2():
-
+    '''
+    tests two arg finite diff class
+    '''
     w = makepoint([2.0, 3.0])
     v = makepoint([4.0, 5.0])
     A = np.matrix([[0.5, 1.5], [2.5, 3.5]])
@@ -93,7 +104,6 @@ def test2():
     def f2_hessuu(x, u):
         return (B+B.T)
 
-    #not so sure about these two!
     def f2_hessxu(x, u):
         return D.T+C
 
@@ -115,8 +125,6 @@ def test2():
     ]
     testpoints = map(makepoint, points)
 
-    
-
     fnpairs = [
         (f2_gradx, M.gradient1),
         (f2_gradu, M.gradient2),
@@ -134,20 +142,14 @@ def test2():
                 true_val = fn1(x, u)
                 est_val = fn2(x, u)
 
-                '''
-                print '#'*20
-                print 'functions:', fn1, fn2
-                print 'x/u:'
-                print x
-                print u
-                print 'values:'
-                print true_val
-                print est_val
-                '''
-                
                 assert np.allclose(true_val, est_val)
 
 def test3():
+    ''' 
+    ILQR
+    tests minimization of a simple quadratic function
+    '''
+    
     def dynamics(state, action):
         return state+action
 
@@ -179,6 +181,11 @@ def test3():
     assert 116 < acc_cost < 117
 
 def test4():
+    '''
+    ILQR
+    tests system with more complex dynamics
+    '''
+    
     def dynamics(state, action):
         pos = state[0:2]
         vel = state[2:4]
@@ -189,7 +196,7 @@ def test4():
         vel = state[2:4]
         return pos.T*pos + vel[0]*vel[1]
 
-    start = np.matrix([1.0, 2.0]).T
+    start = np.matrix([1.0, 2.0, 0.0, 0.0]).T
     
 if __name__ == '__main__':
     print 'running test 0'
