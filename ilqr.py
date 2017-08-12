@@ -265,15 +265,15 @@ class ILQR:
             u0 = acts[i]
             
             #first linearize dynamics
-            d_ = self.dynamics(x0, u0)
+            d_vec = self.dynamics(x0, u0)
             D_x = self.dyn_state_jac(x0, u0)
             D_u = self.dyn_act_jac(x0, u0)
 
             #switching from x0 and u0 to x and u basis
-            d_ -= D_x*x0 + D_u*u0
+            d_vec -= D_x*x0 + D_u*u0
 
             if DEBUGMODE:
-                check_vals(d_)
+                check_vals(d_vec)
                 check_vals(D_x)
                 check_vals(D_u)
             
@@ -309,7 +309,7 @@ class ILQR:
             D_u_T_P = D_u.T*P_mat
             Q_u = D_u_T_P*D_u + C_uu
             Q_x = D_u_T_P*D_x + C_ux
-            q_ = D_u_T_P*d_ + D_u.T*p_vec
+            q_ = c_u + D_u_T_P*d_vec + D_u.T*p_vec
 
             #now we should compute #K and k
             try:
@@ -326,29 +326,35 @@ class ILQR:
                 
             #Now it's time for #M
             M_mat = D_x + D_u * K_mat
-            m_vec = D_u * k_vec + d_
+            m_vec = D_u * k_vec + d_vec
 
             if DEBUGMODE:
                 check_vals(M_mat)
                 check_vals(m_vec)
 
             #finally we can obtain the new #P's
-            P_mat = (C_xx +
+            _P_mat = (C_xx +
                      K_mat.T*C_uu*K_mat +
                      K_mat.T*C_ux + C_xu*K_mat +
                      M_mat.T*P_mat*M_mat)
             
-            p_vec = (c_x +
+            _p_vec = (c_x +
                      K_mat.T*c_u +
                      K_mat.T*C_uu*k_vec +
                      C_xu*k_vec +
                      M_mat.T*P_mat*m_vec +
-                     M_mat*p_vec)
+                     M_mat.T*p_vec)
 
-            p_sca = (c_u.T*k_vec +
+            _p_sca = (c_ +
+                     c_u.T*k_vec +
                      0.5*k_vec.T*C_uu*k_vec +
+                     0.5*m_vec.T*P_mat*m_vec + 
                      p_vec.T*m_vec +
                      p_sca)
+
+            P_mat = _P_mat
+            p_vec = _p_vec
+            p_sca = _p_sca
 
 
             if DEBUGMODE:
