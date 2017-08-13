@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import gym
-from ilqr import FiniteDiff, TwoArgFiniteDiff, ILQR
+from ilqr import FiniteDiff, TwoArgFiniteDiff, ILQR, MPC
 import numpy as np
 import math
 import time
+import random
+import matplotlib.pyplot as plt
 
 def makepoint(lst):
     '''
@@ -219,7 +221,51 @@ def test4():
               4, 2, start)
 
 def test5():
-    '''Cartpole with ILQR'''
+    '''ilqr more advanced'''
+
+    def dynamics(state, action):
+        dt = 0.1
+        
+        pos = state[0]
+        vel = state[1]
+
+
+        new_vel = vel + (action - 2 * pos)*dt
+        new_pos = pos + vel * dt
+        
+        return np.concatenate([new_pos, new_vel], axis = 0)
+
+    def cost(state, action):
+        return action.T*action + (state[0]-1.0)**2
+
+
+    #we are very confident that the finite differences is correct.
+    
+    start_state = np.matrix([0.0,0.0]).T
+    
+    solver = ILQR(2, 1,
+                  dynamics, None, None,
+                  cost, None, None,
+                  None, None, None, None,
+                  eps = 1E-2)
+    solver.config(start_state, horizon = 200, num_iters = 50, damping = 0.0, ilqr_tol = 0.01)
+    solution = solver.solve_iterative()
+    
+    state = np.matrix([0.0,0.0]).T
+    states = [state]
+    for action in solution:
+        state = dynamics(state, action)
+        states.append(state)
+
+    positions = [float(state[0]) for state in states]
+    velocities = [float(state[1]) for state in states]
+    plt.plot(positions)
+    plt.plot(velocities)
+    plt.show()
+    
+    
+def test6():
+    '''Cartpole with MPC'''
 
     def angle_normalize(x):
         return (((x+np.pi) % (2*np.pi)) - np.pi)
@@ -238,7 +284,13 @@ def test5():
         thdot = state[2] #angular velocity
         return theta, thdot
 
-    def softclip(x, _min, _max):
+    def softclip(x, _min, _max, fn = math.sqrt):
+        '''
+        fn is a sublinear function which governs the smoothing
+        '''
+        #fn = lambda x : 0.3*math.sqrt(x)
+        fn = lambda x : x/20.0
+        
         if _min <= x <= _max:
             return float(x)
 
@@ -248,9 +300,9 @@ def test5():
             extra = x-_max
 
         if _min > x:
-            return _min - math.sqrt(extra)
+            return _min - fn(extra)
         elif x > _max:
-            return _max + math.sqrt(extra)
+            return _max + fn(extra)
 
     def dynamics(state, action):
         theta, thdot = read_state(state)
@@ -270,13 +322,32 @@ def test5():
         return newstate.T
     
     def cost(state, action):
+        max_torque = 2.0
+        
         theta, thdot = read_state(state)
-        #cost = angle_normalize(theta)**2 + 0.1*thdot**2 + 0.001*(action.T*action)
-        cost = np.matrix(thdot**2) + 0.01*action.T*action
+        cost = angle_normalize(theta)**2 + 0.1*thdot**2 + 0.01*(action.T*action)**2
+        cost = np.reshape(cost, (1,1))
         return cost
+
+    def test_dynamics():
+        max_torque = 2.0
+
+        env = gym.make('Pendulum-v0')
+        start_state = env.reset()
+        start_state = np.matrix(start_state).T
+
+        for i in range(20):
+            action = random.uniform(-max_torque, max_torque)
+            new_state = np.matrix(env.step([action])[0]).T
+            pred_state = dynamics(start_state, action)
+            assert np.allclose(new_state, pred_state)
+            start_state = new_state
+
+    test_dynamics()
 
     env = gym.make('Pendulum-v0')
     start_state = env.reset()
+    env.render()
     start_state = np.matrix(start_state).T
     
     solver = ILQR(3, 1,
@@ -284,19 +355,19 @@ def test5():
                   cost, None, None,
                   None, None, None, None,
                   eps = 1E-2)
-
     
-    solver.config(start_state, horizon = 30, num_iters = 20, damping = 0.0)
-    solution = solver.solve_iterative()
+    solver.config(start_state, horizon = 30, num_iters = 20, damping = 0.0, ilqr_tol = 0.01)
 
-    print solution
-
-    env.render()
-    for step in solution:
-        time.sleep(0.1)
-        env.step(step[0])
+    solver = MPC(solver, order = 1)
+    
+    solver.start_session()
+    while 1:
+        action = solver.get_next_move()
+        print 'DID ACTION :', action
+        out = env.step(action[0])[0]
         env.render()
-        
+        solver.update_state(np.matrix(out).T)
+
 if __name__ == '__main__':
     # print 'running test 0'
     # test0()
@@ -308,6 +379,7 @@ if __name__ == '__main__':
     # test3()
     # print 'running test 4'
     # test4()
-    print 'running test 5'
-    test5()
+    print 'running test 6'
+    test6()
+
 

@@ -147,7 +147,7 @@ class TwoArgFiniteDiff:
         hessian = tafd.jacobian1(arg1, arg2)
         assert np.shape(hessian) == (self.dom2_dim, self.dom1_dim)
         return hessian
-        
+
 class ILQR:
     def __init__(self, state_dim, act_dim,
                  dynamics, dyn_state_jac, dyn_act_jac,
@@ -239,13 +239,16 @@ class ILQR:
         output : actions
         '''
 
-        DEBUGMODE = True
+        DEBUGMODE = False
 
         #first run the dynamics forward
         xs = [self.start_state]
+        before_cost = 0
         for act in acts:
             x_ = self.dynamics(xs[-1], act)
+            cost = self.cost(xs[-1], act)
             xs.append(x_)
+            before_cost += cost            
         xs.pop() #we don't need H+1
 
         #initialize P values
@@ -305,7 +308,7 @@ class ILQR:
                 check_vals(c_)
                 check_vals(c_x)
                 check_vals(c_u)
-                
+
             D_u_T_P = D_u.T*P_mat
             Q_u = D_u_T_P*D_u + C_uu
             Q_x = D_u_T_P*D_x + C_ux
@@ -315,7 +318,7 @@ class ILQR:
             try:
                 Q_u_inv = Q_u.I
             except:
-                Q_u_inv = (Q_u + 1E-3*np.identity(self.act_dim)).I
+                Q_u_inv = (Q_u + np.identity(self.act_dim)).I
                 
             K_mat = -Q_u_inv * Q_x
             k_vec = -Q_u_inv * q_
@@ -356,7 +359,6 @@ class ILQR:
             p_vec = _p_vec
             p_sca = _p_sca
 
-
             if DEBUGMODE:
                 check_vals(P_mat)
                 check_vals(p_vec)
@@ -370,22 +372,26 @@ class ILQR:
         k_vecs = list(reversed(k_vecs))
 
         #rollout once
-        newacts = []
-        x = self.start_state
-        acc_cost = 0
-        for i, (K_mat, k_vec) in enumerate(zip(K_mats, k_vecs)):
-            act = (1.0-self.damping)*(K_mat * x + k_vec) + self.damping*acts[i]
+        mix_factor = 1.0-self.damping #amoutn of new solutn we use
+        while 1:
+            newacts = []
+            x = self.start_state
+            acc_cost = 0
+            for i, (K_mat, k_vec) in enumerate(zip(K_mats, k_vecs)):
+                act = (mix_factor)*(K_mat * x + k_vec) + (1.0-mix_factor)*acts[i]
             
-            if DEBUGMODE:
-                check_vals(act)
+                if DEBUGMODE:
+                    check_vals(act)
                 
-            newacts.append(act)
-            acc_cost += self.cost(x, act)
-            x = self.dynamics(x, act)
+                newacts.append(act)
+                acc_cost += self.cost(x, act)
+                x = self.dynamics(x, act)
 
-        print 'cost was', acc_cost
-
-        return newacts
+            if acc_cost <= before_cost:
+                print 'cost was', acc_cost
+                return newacts
+            else:
+                mix_factor /= 2.0
 
     def solve_iterative(self):
         '''
@@ -416,13 +422,14 @@ class MPC:
     then alternate calls to get_next_move and update_state
     '''
     
-    def __init__(self, ilqr_system):
+    def __init__(self, ilqr_system, order = 1):
         '''
         set up MPC system given an ILQR instance
         '''
         self.system = ilqr_system
         self.start = self.system.start_state
-
+        self.order = order
+        
     def start_session(self):
         '''start an MPC solving session'''
         self.system.start_state = self.start
@@ -430,17 +437,17 @@ class MPC:
     def get_next_move(self):
         '''ask for the next move'''
         actions = self.system.solve_iterative()
-        return actions[0]
+        self.system.initial_actions = actions[self.order:] + [np.matrix([[0.0]])]
+        if self.order == 1:
+            return actions[0]
+        return actions[:self.order]
+    
 
     def update_state(self, state):
         '''return the state which happens'''
-        self.system.state = state
-        self.system.horizon -= 1
+        self.system.start_state = state
+        #self.system.horizon -= 1
         
 if __name__ == '__main__':
     pass
 
-#make mpc test
-#need a family with time varying dynamics and costs
-#3-argument dynamics/cost fn, with optional time
-#write the notes on OC before further development
